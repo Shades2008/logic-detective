@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRng } from '../lib/rng.js';
+import { createRng, randomSeed } from '../lib/rng.js';
+import { generateCase } from '../lib/generator.js';
 
 test('same seed gives the same sequence; different seeds differ', () => {
   const a = createRng('abc');
@@ -27,4 +28,20 @@ test('sample returns distinct elements and shuffle keeps them all', () => {
   const picked = rng.sample(items, 5);
   assert.equal(new Set(picked).size, 5);
   assert.deepEqual(rng.shuffle(items).sort(), items);
+});
+
+test('randomSeed is 64 bits of hex from crypto.getRandomValues, never a counter or the clock', () => {
+  const real = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+  let calls = 0;
+  globalThis.crypto.getRandomValues = (arr) => { calls++; return real(arr); };
+  try {
+    const seeds = new Set(Array.from({ length: 200 }, () => randomSeed()));
+    assert.equal(calls, 200);
+    assert.equal(seeds.size, 200);
+    for (const s of seeds) assert.match(s, /^[0-9a-f]{16}$/);
+  } finally {
+    globalThis.crypto.getRandomValues = real;
+  }
+  // The generator's default seed uses it too.
+  assert.match(generateCase({ level: 1 }).seed, /^[0-9a-f]{16}$/);
 });
