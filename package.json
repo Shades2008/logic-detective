@@ -6,6 +6,9 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
+    "build": "node scripts/build.js",
+    "pretest": "npm run build",
+    "dev": "node scripts/dev.js",
     "test": "node --test \"test/**/*.test.js\"",
     "sample": "node scripts/sample.js",
     "stats": "node scripts/pool-stats.js"
