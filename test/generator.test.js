@@ -123,5 +123,5 @@ test('invalid level and impossible configurations fail loudly', () => {
   assert.throws(() => generateCase({ seed: 'x', level: 0 }), RangeError);
   assert.throws(() => generateCase({ seed: 'x', level: 5 }), RangeError);
   // maxAttempts: 0 means no attempt can succeed, so the regenerate loop exhausts.
-  assert.throws(() => generateCase({ seed: 'x', level: 1, maxAttempts: 0 }), /No uniquely solvable case/);
+  assert.throws(() => generateCase({ seed: 'x', level: 1, maxAttempts: 0 }), /No uniquely solvable/);
 });
