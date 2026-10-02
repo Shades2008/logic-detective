@@ -50,7 +50,10 @@ test('lib/ is browser-safe: no Node-only modules or globals', () => {
 test('the UI imports only the adapter and display helpers, never the generator, solver or view', () => {
   const main = read('public/js/main.js');
   const imports = [...main.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]).sort();
-  assert.deepEqual(imports, ['../lib/data.js', '../lib/scoring.js', './art.js', './config.js', './gameClient.js', './storage.js']);
+  assert.deepEqual(imports, [
+    '../lib/data.js', '../lib/leaderboard.js', '../lib/scoring.js', './art.js', './config.js', './dom.js',
+    './gameClient.js', './leaderboardClient.js', './leaderboardView.js', './nameForm.js', './storage.js',
+  ]);
   assert.doesNotMatch(main, /\bseed\b/, 'the UI must not touch the seed');
   // The culprit is only ever read from a finished case (result or run summary), never off the live case view.
   assert.doesNotMatch(main, /\b(?:v|view|ui\.view)\.culprit/, 'culprit read from the live case view');
@@ -66,6 +69,28 @@ test('the UI takes the accuse rule from the adapter instead of re-implementing i
   assert.doesNotMatch(main, /cardsOpened\s*<=\s*\w+\.par/, 'the par bonus must come from the score breakdown');
   const how = main.match(/Open at least \$\{MIN_CARDS_TO_ACCUSE\} clues first/);
   assert.ok(how, 'How to Play explains the rule using the shared constant');
+});
+
+test('player-supplied text is never written as HTML', () => {
+  // Names reach the page only through h() text nodes. The `html` prop is for fixed art.
+  const code = (file) => read(`public/js/${file}`).replace(/\/\/.*$/gm, ''); // ignore comments
+  for (const file of ['main.js', 'leaderboardView.js', 'nameForm.js', 'leaderboardClient.js', 'storage.js']) {
+    assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(code(file)), `${file} writes HTML`);
+  }
+  // the only `html:` props in the UI wrap figureSvg() art
+  for (const [line] of code('main.js').matchAll(/.*\bhtml\s*:.*/g)) assert.match(line, /figureSvg\(/, line);
+  assert.ok(!/\bhtml\s*:/.test(code('leaderboardView.js') + code('nameForm.js')));
+  // dom.js is the one place that may assign innerHTML, and only for the `html` prop
+  assert.match(code('dom.js'), /key === 'html'/);
+});
+
+test('the page has a leaderboard screen and the browser sends only a name and per-case results', () => {
+  assert.match(html, /id="screen-leaderboard"/);
+  const client = read('public/js/leaderboardClient.js').replace(/\/\/.*$/gm, '');
+  const toSubmission = client.match(/export function toSubmission[\s\S]*?\n}\n/)[0];
+  assert.match(toSubmission, /cardsOpened, wrongAccusations, solved/);
+  assert.doesNotMatch(toSubmission, /\b(total|score|par|seed|culprit)\b/, 'the request body must not carry these');
+  assert.match(client, /body: JSON\.stringify\(toSubmission\(name, summary\)\)/);
 });
 
 test('page metadata supports a bare shared link', () => {

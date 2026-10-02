@@ -47,6 +47,21 @@ There are two ways to deal the clues (`generateCase({ seed, level, mode })`):
 
 The solver and generator are plain ES modules in `lib/`, shared by the browser and (later) the serverless API.
 
+## Leaderboard
+
+Optional: set a nickname on the title screen (2 to 16 letters, numbers, spaces, `-` or `_`), and your finished
+run is posted to a shared top-20 board. The game works without a nickname, and without the leaderboard.
+
+**It runs on the honor system.** The game is played in your browser, so anyone can fake a run. The server makes that
+harder, not impossible: the browser sends only the nickname and per-case results (never a score), and the server rejects
+runs the rules cannot produce (more than 4 cases, levels out of order, more than 3 strikes, impossible card counts),
+recomputes the score itself with the same `scoreRun` the game uses, rate-limits each IP (10 submissions per hour), and
+keeps the best 100 runs. Treat the board as a friendly scoreboard, not proof.
+
+- `GET /api/scores` returns the top 20. `POST /api/scores` submits a run.
+- Storage is Upstash Redis over plain `fetch`, using `KV_REST_API_URL` and `KV_REST_API_TOKEN` (see `.env.example`).
+  If they are missing, or Redis is down, the API answers 503 and the rest of the game is unaffected.
+
 ## Run it
 
 Needs Node 20 or newer. No dependencies.
@@ -54,6 +69,9 @@ Needs Node 20 or newer. No dependencies.
 ```
 npm test                # unit tests, 1000 random cases per level, UI state machine, site checks
 npm run dev             # http://localhost:8080  (PORT=3000 npm run dev to change)
+                        # /api/scores answers 503 until Redis is configured; put the two KV_REST_API_*
+                        # variables in .env.local to use real Redis, or run with DEV_MEMORY_STORE=1
+                        # for an in-memory leaderboard with sample runs
 npm run build           # copy lib/ into public/lib/ (done for you by pretest and by Vercel)
 npm run sample -- 4 myseed --pool   # print a pool case, its par and the public view
 npm run stats           # per-level pool/par table for tuning
@@ -61,7 +79,8 @@ npm run stats           # per-level pool/par table for tuning
 
 ## Deploy (Vercel)
 
-Import the repo as a new project. `vercel.json` sets the build and output folder:
+Import the repo as a new project and connect an Upstash Redis store (Vercel's Marketplace integration injects
+`KV_REST_API_URL` and `KV_REST_API_TOKEN`; no other variable is used). `vercel.json` sets the build and output folder:
 
 - `buildCommand`: `npm run build` copies `lib/*.js` to `public/lib/` so the browser can import it.
   The rules live once, in `lib/`; `public/lib/` is generated and gitignored.
@@ -70,8 +89,10 @@ Import the repo as a new project. `vercel.json` sets the build and output folder
 ## Layout
 
 ```
-lib/        shared rules (browser and server): data, rng, clues, solver, generator, view, scoring, text
-public/     the static site: index.html, css/, js/ (main.js UI, gameClient.js adapter, art.js, storage.js)
+lib/        shared rules (browser and server): data, rng, clues, solver, generator, view, scoring, text, leaderboard
+server/     server-only logic: Upstash REST client, leaderboard store, request handler, in-memory test store
+api/        Vercel routes (thin): scores.js
+public/     the static site: index.html, css/, js/ (main.js UI, gameClient.js adapter, leaderboard modules, art.js, storage.js)
 scripts/    build.js, dev.js, sample.js, pool-stats.js
 test/       node:test suites
 ```
