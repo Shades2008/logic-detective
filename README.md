@@ -1,81 +1,85 @@
 # Logic Detective
 
-Procedurally generated noir deduction game where a solver guarantees every case has exactly one culprit.
+A noir deduction game. Four cases, one culprit each, and every clue is true.
+Open clue cards, cross off suspects, and name the culprit in as few cards as you can.
 
-Status: **generator, solver, pool mode, public view, scoring + tests** (no UI yet). Planned: single-player UI, then 2-8 player rooms
-(Upstash Redis, polling `/api/state`), deployed on Vercel.
+**Play it:** `https://YOUR-VERCEL-URL.vercel.app` (placeholder: add the live link after the first deploy)
 
-## How a case is made
+No login, no install, no backend. It runs entirely in the browser.
 
-1. Build a lineup of suspects (hat, coat colour, location, item carried) and pick the culprit.
-2. Collect every clue that is *true* of the culprit.
-3. Reveal clues one at a time, each ruling out at least one remaining suspect, until one is left.
-4. Run the solver over the clue list. Exactly one suspect must fit, and it must be the culprit; otherwise regenerate.
+## How to play
 
-Same `seed` + `level` always gives the same case.
+- A run is **4 cases** with 5, 6, 7 and 8 suspects. Each case has exactly one culprit.
+- Suspects stand in a numbered lineup. Clue cards start **face down**, labelled only by category
+  (Hat, Coat, Location, Item, Neighbors, Same place). Tap a card to open it.
+- **Every clue is true of the culprit**, and every card rules out at least one suspect. No tricks, no decoys.
+- "Next to" means the suspect numbered one lower or one higher in the lineup.
+- Opening a card does **not** cross anyone off. That's your job: tap a suspect to cross them off (it's only your notebook).
+- When you're sure, press **Accuse**, tap a suspect, and confirm.
+  A wrong accusation is a **strike**. Strikes add up across the whole run, and the third one ends it.
+- Scoring: 1000 per case, -75 per card opened, -200 per strike, +150 for solving in par cards or fewer,
+  never below 0. Solving cases back to back earns a streak bonus. Your best run is saved on your device.
 
-| Level | Suspects | Clues                                   |
-| ----- | -------- | --------------------------------------- |
-| 1     | 5        | direct                                  |
-| 2     | 6        | direct, negative                        |
-| 3     | 7        | direct, negative, relational            |
-| 4     | 8        | direct, negative, relational (longer)   |
+## How the solver works
 
-Clue examples: "The culprit was wearing a fedora." / "...was not carrying a cane." /
-"...was standing next to someone in a red coat." / "...was not at the same place as anyone carrying an umbrella."
-Roster order is the police lineup, so "next to" means a neighbour in the array.
+Cases are generated **from the truth**, then proven solvable:
 
-## Modes
+1. Build a lineup of suspects with four traits each (hat, coat colour, location, item carried) and pick the culprit.
+2. List every clue that is *true of the culprit*: direct ("wore a fedora"), negative ("was not carrying a cane"),
+   and relational ("a neighbor in the lineup wore a red coat", "no one else at their location carried a cane").
+3. Pick clues until only the culprit is left. Each pick must rule out at least one remaining suspect.
+4. **Run the solver.** A clue is a yes/no test on a suspect, so the solver simply keeps every suspect for whom all clues
+   hold. The case ships only if that leaves exactly one suspect, and it is the culprit. Otherwise it is thrown away and
+   regenerated. A separate check also confirms every clue is true of the culprit.
 
-`generateCase({ seed, level, mode })`
+Same `seed` + `level` + `mode` always produces the same case.
 
-- **`race`** (default, multiplayer): the minimal deck above, revealed in order. Every clue narrows the field.
-- **`pool`** (single-player): the same kind of deck padded with extra true clues into a shuffled pool of
-  `poolSize` cards (6 / 7 / 8 / 10). The player opens the cards they choose, so skill is picking informative ones.
-  - Every card is true of the culprit; no two cards have the same effect on the roster.
-  - The pool always holds a *strong* card (rules out half the suspects or more) and a *weak* one (rules out one or two).
-  - `par` is the size of the smallest subset of the pool that identifies the culprit (brute-forced).
-    It is stored on the case and never sent to clients.
-  - `verifyCase` (solver) is the final gate: every clue true, exactly one survivor, par correct. Otherwise regenerate.
+There are two ways to deal the clues (`generateCase({ seed, level, mode })`):
 
-`minPar` (per level) is the pool-mode floor on par. It is lower than `minClues` at levels 3-4 on purpose: a pool with a
-strong card leaves at most floor(n/2) suspects, which caps par at floor(n/2).
+- **`pool`** (single-player, what the site uses): a shuffled pool of 6 to 10 clue cards, all true and none equivalent to
+  another. The player chooses which to open. **Par** is the size of the smallest subset of the pool that identifies the
+  culprit, found by brute force over every subset (at most 1024). The pool always contains at least one strong card
+  (rules out half the suspects or more) and one weak card (rules out one or two), so choosing matters.
+- **`race`** (planned multiplayer): a short ordered deck revealed one clue at a time. Each clue narrows the field at the
+  moment it is revealed, but the deck is **not** guaranteed to be the smallest possible set of clues: a later clue can
+  make an earlier one redundant.
 
-## What a client may see
+The solver and generator are plain ES modules in `lib/`, shared by the browser and (later) the serverless API.
 
-`publicView(case)` gives suspects plus `{ index, label }` cards, where the label is only a category
-(Hat, Coat, Location, Item, Neighbors, Same place). `revealClue(case, index)` returns the full clue for one card.
-The view never contains the culprit, par, clue values, or the seed (the shared generator could rebuild the case from it).
+## Run it
 
-## Scoring
+Needs Node 20 or newer. No dependencies.
 
-`lib/scoring.js`, all numbers in `SCORING`: 1000 per case, -75 per card opened, -200 per wrong accusation,
-+150 at or under par, floor 0, unsolved = 0. Strikes accumulate across a run and three end it. Consecutive
-solved cases earn a streak bonus. `scoreCase(...)` and `scoreRun(caseResults)`.
+```
+npm test                # unit tests, 1000 random cases per level, UI state machine, site checks
+npm run dev             # http://localhost:8080  (PORT=3000 npm run dev to change)
+npm run build           # copy lib/ into public/lib/ (done for you by pretest and by Vercel)
+npm run sample -- 4 myseed --pool   # print a pool case, its par and the public view
+npm run stats           # per-level pool/par table for tuning
+```
+
+## Deploy (Vercel)
+
+Import the repo as a new project. `vercel.json` sets the build and output folder:
+
+- `buildCommand`: `npm run build` copies `lib/*.js` to `public/lib/` so the browser can import it.
+  The rules live once, in `lib/`; `public/lib/` is generated and gitignored.
+- `outputDirectory`: `public`. The site uses only relative URLs, so it works from the root of a domain.
 
 ## Layout
 
 ```
-lib/        shared by the front end and /api (plain ESM, no Node-only APIs)
-  data.js       traits, names, difficulty levels
-  rng.js        seeded PRNG
-  clues.js      clue format, holds(), clue enumeration, wording
-  solver.js     solve(), isUnique(), narrowing(), smallestSufficientSubset(), verifyCase()
-  generator.js  generateCase({ seed, level, mode })
-  view.js       publicView(), revealClue()
-  scoring.js    SCORING, scoreCase(), scoreRun()
+lib/        shared rules (browser and server): data, rng, clues, solver, generator, view, scoring, text
+public/     the static site: index.html, css/, js/ (main.js UI, gameClient.js adapter, art.js, storage.js)
+scripts/    build.js, dev.js, sample.js, pool-stats.js
 test/       node:test suites
-scripts/    sample.js (print a case), pool-stats.js (tuning table)
 ```
 
-A race case is `{ seed, level, attempt, suspects, culprit, clues }`; a pool case adds `mode: 'pool'` and `par`. `culprit` is an index kept
-**outside** the suspect objects so a server can send `suspects` and `clues.slice(0, k)` without leaking it.
+`public/js/gameClient.js` is the only thing the UI talks to (`startRun`, `getCase`, `openCard`, `accuse`,
+`nextCase`, `getRunSummary`). It holds the full case privately and hands the UI copies that contain no culprit, seed,
+or unopened clue text until a case ends. When multiplayer arrives, that file is the one swapped for calls to `/api`.
 
-## Commands
+## Roadmap
 
-```
-npm test                   # needs Node >= 20, no dependencies
-npm run sample -- 4 myseed # level 4, seed "myseed", race deck
-npm run sample -- 4 myseed --pool  # pool, par and the public view
-npm run stats              # per-level pool/par table for tuning LEVELS
-```
+Multiplayer: 2 to 8 players join by room code, state in Upstash Redis, clients poll `/api/state`, three rounds,
+earlier correct accusations score more.
