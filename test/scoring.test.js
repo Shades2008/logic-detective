@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreCase, scoreRun, SCORING } from '../lib/scoring.js';
+import { scoreCase, scoreBreakdown, scoreRun, SCORING } from '../lib/scoring.js';
 
 const solvedCase = (over = {}) => ({ cardsOpened: 4, wrongAccusations: 0, par: 3, solved: true, ...over });
 
@@ -115,4 +115,24 @@ test('strikes accumulate across cases but two do not end the run', () => {
 
 test('empty run', () => {
   assert.deepEqual(scoreRun([]), { total: 0, caseScores: [], streakBonuses: [], casesCounted: 0, strikes: 0, ended: false });
+});
+
+test('scoreBreakdown itemises the same total scoreCase returns', () => {
+  const cases = [
+    solvedCase({ cardsOpened: 3, par: 3 }),
+    solvedCase({ cardsOpened: 4, par: 3, wrongAccusations: 1 }),
+    solvedCase({ cardsOpened: 14, par: 4 }),
+    { cardsOpened: 2, wrongAccusations: 3, par: 3, solved: false },
+  ];
+  for (const c of cases) {
+    const b = scoreBreakdown(c);
+    assert.equal(b.total, scoreCase(c));
+    assert.equal(b.total, Math.max(0, b.subtotal));
+    assert.equal(b.subtotal, b.base + b.cardPenalty + b.strikePenalty + b.parBonus);
+  }
+  assert.deepEqual(scoreBreakdown(solvedCase({ cardsOpened: 4, par: 3, wrongAccusations: 1 })), {
+    solved: true, base: 1000, cardPenalty: -300, strikePenalty: -200, parBonus: 0, subtotal: 500, total: 500, floored: false,
+  });
+  assert.equal(scoreBreakdown(solvedCase({ cardsOpened: 14, par: 4 })).floored, true);
+  assert.equal(scoreBreakdown(solvedCase({ cardsOpened: 3, par: 3 })).parBonus, 150);
 });

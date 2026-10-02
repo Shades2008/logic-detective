@@ -92,3 +92,17 @@ for (const config of LEVELS) {
     assert.ok(solutionAtFront < cases * 0.5, `solution cards sat at the front in ${solutionAtFront}/${cases} cases`);
   });
 }
+
+test('resolveAccusation returns only { correct }', async () => {
+  const { resolveAccusation } = await import('../lib/view.js');
+  const c = generateCase({ seed: 'acc', level: 2, mode: 'pool' });
+  for (let i = 0; i < c.suspects.length; i++) {
+    const verdict = resolveAccusation(c, i);
+    assert.deepEqual(Object.keys(verdict), ['correct']);
+    assert.equal(verdict.correct, i === c.culprit);
+  }
+  assert.throws(() => resolveAccusation(c, -1), RangeError);
+  assert.throws(() => resolveAccusation(c, c.suspects.length), RangeError);
+  assert.throws(() => resolveAccusation(c, 'x'), RangeError);
+  assert.throws(() => resolveAccusation(generateCase({ seed: 'r', level: 1 }), 0), TypeError);
+});
