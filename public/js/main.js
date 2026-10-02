@@ -8,6 +8,11 @@ import { LEVELS, MIN_CARDS_TO_ACCUSE } from '../lib/data.js';
 import { figureSvg, LOCATION_ICONS, ITEM_ICONS, TRAIT_ICONS, CARD_ICONS } from './art.js';
 import { loadProfile, saveProfile } from './storage.js';
 import { FEEDBACK_URL } from './config.js';
+import { h } from './dom.js';
+import { renderNameForm } from './nameForm.js';
+import { renderLeaderboard } from './leaderboardView.js';
+import { createLeaderboardClient } from './leaderboardClient.js';
+import { LEADERBOARD } from '../lib/leaderboard.js';
 
 const client = createGameClient();
 
@@ -20,26 +25,17 @@ const ui = {
   feedback: null, // { text, kind } line above the Accuse button
   lastAccused: null, // name of the suspect accused on the last strike
   profile: loadProfile(),
+  nameNotice: null, // "Nickname saved" line on the title screen
+  final: null, // { summary, isNewBest, saved } for the run on the final screen
+  submission: null, // leaderboard submission state for that run
+  lb: { status: 'loading' }, // leaderboard screen state
+  lbFrom: 'title', // where Back goes
+  lbPanel: null,
 };
 
-// ---- helpers ---------------------------------------------------------------
+const lbClient = createLeaderboardClient();
 
-function h(tag, props = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
-    if (value == null || value === false) continue;
-    if (key === 'class') el.className = value;
-    else if (key === 'text') el.textContent = value;
-    else if (key === 'html') el.innerHTML = value; // only ever fixed art strings from art.js
-    else if (key.startsWith('on')) el.addEventListener(key.slice(2), value);
-    else el.setAttribute(key, value === true ? '' : value);
-  }
-  for (const kid of kids.flat()) {
-    if (kid == null || kid === false) continue;
-    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
-  }
-  return el;
-}
+// ---- helpers ---------------------------------------------------------------
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => n.toLocaleString('en-US');
@@ -51,6 +47,7 @@ const screens = {
   case: $('screen-case'),
   result: $('screen-result'),
   final: $('screen-final'),
+  leaderboard: $('screen-leaderboard'),
 };
 
 let announceTimer;
@@ -149,6 +146,29 @@ function openHowTo() {
 
 // ---- title ----------------------------------------------------------------------
 
+function saveName(name) {
+  ui.profile.name = name;
+  saveProfile({ name }); // if storage is blocked the name just lasts for this visit
+}
+
+function nameSection() {
+  const name = ui.profile.name;
+  return h('div', { class: 'panel name-panel' },
+    h('p', { class: 'playing-as' },
+      name ? ['Playing as ', h('strong', { text: name })] : 'No nickname set. You can still play; a nickname is only needed to appear on the leaderboard.'),
+    renderNameForm({
+      h, currentName: name, idPrefix: 'nick-title', submitLabel: name ? 'Update' : 'Save',
+      onSave: (next) => {
+        saveName(next);
+        ui.nameNotice = next ? `Saved. You will appear as ${next}.` : 'Nickname removed.';
+        announce(ui.nameNotice);
+        renderTitle();
+        $('nick-title')?.focus();
+      },
+    }),
+    ui.nameNotice ? h('p', { class: 'form-ok', text: ui.nameNotice }) : null);
+}
+
 function renderTitle() {
   const best = ui.profile.best;
   screens.title.replaceChildren(
@@ -158,11 +178,16 @@ function renderTitle() {
       h('p', { class: 'tagline', text: `${plural(LEVELS.length, 'noir case')}. One culprit each. Every clue is true.` }),
       h('div', { class: 'btn-row' },
         h('button', { type: 'button', class: 'btn btn-primary', onclick: startRun, text: 'Start' }),
+        h('button', { type: 'button', class: 'btn', onclick: () => showLeaderboard('title'), text: 'Leaderboard' }),
         h('button', { type: 'button', class: 'btn', onclick: openHowTo, text: 'How to play' })),
-      best != null ? h('p', { class: 'best', text: `Personal best: ${fmt(best)}` }) : null));
+      best != null ? h('p', { class: 'best', text: `Personal best: ${fmt(best)}` }) : null,
+      nameSection()));
 }
 
 function startRun() {
+  ui.nameNotice = null;
+  ui.final = null;
+  ui.submission = null;
   ui.view = client.startRun();
   resetCaseNotes();
   show('case');
@@ -434,25 +459,83 @@ function nextCase() {
 
 // ---- final screen ---------------------------------------------------------------------
 
-let recordedFor = null;
-
 function showFinal() {
   const summary = client.getRunSummary();
-  const struckOut = summary.endedBy === 'strikes';
 
   // Personal best, once per finished run.
   let isNewBest = false;
   let saved = true;
-  if (recordedFor !== summary) {
-    recordedFor = summary;
-    const best = ui.profile.best;
-    if (summary.total > 0 && (best == null || summary.total > best)) {
-      isNewBest = true;
-      ui.profile.best = summary.total;
-      saved = saveProfile({ best: summary.total });
-    }
+  const best = ui.profile.best;
+  if (summary.total > 0 && (best == null || summary.total > best)) {
+    isNewBest = true;
+    ui.profile.best = summary.total;
+    saved = saveProfile({ best: summary.total });
   }
 
+  ui.final = { summary, isNewBest, saved };
+  ui.submission = ui.profile.name ? { status: 'submitting' } : { status: 'no-name' };
+  renderFinal();
+  show('final');
+  if (ui.profile.name) submitRun(summary);
+}
+
+function renderFinalIfVisible() {
+  if (ui.screen === 'final' && ui.final) renderFinal();
+}
+
+async function submitRun(summary) {
+  ui.submission = { status: 'submitting' };
+  renderFinalIfVisible();
+  const result = await lbClient.submit(ui.profile.name, summary);
+  if (!ui.final || ui.final.summary !== summary) return; // a new run was started meanwhile
+  ui.submission = result;
+  if (result.status === 'ok') {
+    const lastRun = { id: result.id, rank: result.rank, score: result.score, name: ui.profile.name };
+    ui.profile.lastRun = lastRun;
+    saveProfile({ lastRun });
+  }
+  renderFinalIfVisible();
+  announce(submissionText(result) ?? '');
+}
+
+function submissionText(sub) {
+  switch (sub.status) {
+    case 'submitting': return 'Posting your score…';
+    case 'ok': return sub.rank ? `Posted to the leaderboard. You are number ${sub.rank}.` : 'Posted, but it did not make the top 100.';
+    case 'unavailable': return 'The leaderboard is unavailable right now, so your run was not posted.';
+    case 'rate-limited': return 'Too many submissions from your network. Please try again later.';
+    case 'rejected': return `Your run could not be posted: ${sub.message}`;
+    case 'error': return 'Could not reach the leaderboard.';
+    default: return null;
+  }
+}
+
+function submissionPanel() {
+  const sub = ui.submission;
+  const summary = ui.final.summary;
+  if (!sub) return null;
+
+  if (sub.status === 'no-name') {
+    return h('div', { class: 'panel' },
+      h('h3', { text: 'Post this run to the leaderboard' }),
+      h('p', { class: 'fine', text: 'Add a nickname to appear on the leaderboard. This is optional.' }),
+      renderNameForm({
+        h, idPrefix: 'nick-final', submitLabel: 'Save and post',
+        onSave: (name) => { if (!name) return; saveName(name); submitRun(summary); },
+      }));
+  }
+
+  const retryable = sub.status === 'unavailable' || sub.status === 'error';
+  return h('div', { class: 'panel' },
+    h('h3', { text: 'Leaderboard' }),
+    h('p', { class: sub.status === 'ok' ? 'pos-num' : sub.status === 'submitting' ? 'fine' : 'form-error-text', text: submissionText(sub) }),
+    sub.status === 'ok' && sub.rank ? h('p', { class: 'fine', text: `${fmt(sub.score)} points as ${ui.profile.name}.` }) : null,
+    retryable ? h('button', { type: 'button', class: 'btn', onclick: () => submitRun(summary), text: 'Try again' }) : null);
+}
+
+function renderFinal() {
+  const { summary, isNewBest, saved } = ui.final;
+  const struckOut = summary.endedBy === 'strikes';
   const last = summary.cases[summary.cases.length - 1];
   const caseItems = summary.cases.map((c, i) => h('li', {},
     h('div', { class: 'row' },
@@ -480,13 +563,54 @@ function showFinal() {
           h('span', {}, 'Cases solved ', h('strong', { text: `${summary.casesSolved} of ${summary.totalCases}` })),
           h('span', {}, 'Strikes ', h('strong', { text: `${summary.strikes} of ${summary.maxStrikes}` })),
           h('span', {}, 'Streak bonus ', h('strong', { text: signed(summary.streakBonusTotal) })))),
+      submissionPanel(),
       h('h3', { text: 'Case by case' }),
       h('ol', { class: 'case-list' }, caseItems),
       h('div', { class: 'btn-row' },
         h('button', { type: 'button', class: 'btn btn-primary', onclick: startRun, text: 'Play again' }),
+        h('button', { type: 'button', class: 'btn', onclick: () => showLeaderboard('final'), text: 'Leaderboard' }),
         h('button', { type: 'button', class: 'btn', onclick: openHowTo, text: 'How to play' })),
       h('a', { class: 'feedback-link', href: FEEDBACK_URL, text: 'Send feedback' })));
-  show('final');
+}
+
+// ---- leaderboard screen --------------------------------------------------------------------
+
+let lbToken = 0;
+
+function updateLeaderboardPanel() {
+  ui.lbPanel.replaceChildren(renderLeaderboard({ h, state: ui.lb, latest: ui.profile.lastRun, onRetry: loadLeaderboard }));
+}
+
+async function loadLeaderboard() {
+  const token = ++lbToken;
+  ui.lb = { status: 'loading' };
+  updateLeaderboardPanel();
+  const result = await lbClient.fetchTop();
+  if (token !== lbToken || ui.screen !== 'leaderboard') return; // left the screen or reloaded
+  ui.lb = result;
+  updateLeaderboardPanel();
+}
+
+function leaveLeaderboard() {
+  lbToken++; // drop any fetch still in flight
+  if (ui.lbFrom === 'final' && ui.final) { show('final'); return; }
+  ui.nameNotice = null;
+  renderTitle();
+  show('title');
+}
+
+function showLeaderboard(from) {
+  ui.lbFrom = from;
+  ui.lbPanel = h('div', { class: 'panel' });
+  screens.leaderboard.replaceChildren(
+    h('div', { class: 'result-head' },
+      h('h2', { class: 'verdict', id: 'lb-heading', tabindex: '-1', 'data-heading': '', text: 'Leaderboard' }),
+      h('p', { class: 'fine', text: `The top ${LEADERBOARD.shown} runs. It runs on the honor system: the server works out each score, but runs are played in your browser.` }),
+      ui.lbPanel,
+      h('div', { class: 'btn-row' },
+        h('button', { type: 'button', class: 'btn btn-primary', onclick: leaveLeaderboard, text: from === 'final' ? 'Back to results' : 'Back' }))));
+  show('leaderboard');
+  loadLeaderboard();
 }
 
 // ---- boot --------------------------------------------------------------------------------
