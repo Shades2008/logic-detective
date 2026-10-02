@@ -4,33 +4,9 @@ import { generateCase } from '../lib/generator.js';
 import { solve, narrowing } from '../lib/solver.js';
 import { clueClass } from '../lib/clues.js';
 import { ATTRS, LEVELS } from '../lib/data.js';
+import { oracleFits, oracleSolve } from './helpers.js';
 
 const CASES_PER_LEVEL = 1000;
-
-// Independent oracle: re-states the clue rules from the spec in a different
-// shape from lib/clues.js (index arithmetic, explicit loops, no shared code),
-// so a bug in `holds` can't also hide inside the check that catches it.
-function oracleFits(suspects, clues, i) {
-  for (const c of clues) {
-    let result;
-    if (c.type === 'attr') {
-      result = suspects[i][c.attr] === c.value;
-    } else {
-      result = false;
-      for (let j = 0; j < suspects.length; j++) {
-        if (j === i) continue;
-        const related = c.relation === 'nextTo'
-          ? Math.abs(j - i) === 1
-          : suspects[j].location === suspects[i].location;
-        if (related && suspects[j][c.attr] === c.value) result = true;
-      }
-    }
-    if (c.negate) result = !result;
-    if (!result) return false;
-  }
-  return true;
-}
-const oracleSolve = (suspects, clues) => suspects.map((_, i) => i).filter((i) => oracleFits(suspects, clues, i));
 
 for (const config of LEVELS) {
   test(`level ${config.level}: ${CASES_PER_LEVEL} random cases each have exactly one solution`, (t) => {
