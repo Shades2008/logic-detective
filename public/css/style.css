@@ -342,3 +342,9 @@ dialog#howto::backdrop { background: rgba(5, 6, 9, .78); }
 .lb-note { color: var(--muted); }
 .lb-note p { margin-bottom: .8em; }
 .lb-latest { margin: .9em 0 0; color: var(--muted); font-weight: 600; }
+
+/* narrow screens: the nickname field gets the full width so a 16-character name fits whole */
+@media (max-width: 480px) {
+  .name-row { flex-direction: column; }
+  .name-row .btn { width: 100%; }
+}
