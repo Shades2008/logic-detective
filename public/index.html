@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Logic Detective: a noir deduction game</title>
+  <meta name="description" content="Four noir cases, one culprit each. Open clue cards, cross off suspects, and name the culprit in as few cards as you can. Every clue is true.">
+  <meta name="theme-color" content="#12141a">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Logic Detective: a noir deduction game">
+  <meta property="og:description" content="Four noir cases, one culprit each. Open clue cards, cross off suspects, and name the culprit in as few cards as you can. Every clue is true.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Logic Detective: a noir deduction game">
+  <meta name="twitter:description" content="Four noir cases, one culprit each. Every clue is true. Can you name the culprit in as few cards as possible?">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%95%B5%EF%B8%8F%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the game</a>
+
+  <header class="topbar">
+    <span class="brand" aria-hidden="true">Logic Detective</span>
+    <button type="button" class="btn btn-ghost" id="btn-howto-top">How to play</button>
+  </header>
+
+  <main id="main" class="app">
+    <noscript><p class="notice">Logic Detective needs JavaScript. Please turn it on and reload.</p></noscript>
+    <p class="notice" id="load-error" hidden>The game could not load. Please refresh the page.</p>
+
+    <section id="screen-title" class="screen" aria-labelledby="title-heading" hidden></section>
+    <section id="screen-case" class="screen" aria-label="Case" hidden></section>
+    <section id="screen-result" class="screen" aria-labelledby="result-heading" hidden></section>
+    <section id="screen-final" class="screen" aria-labelledby="final-heading" hidden></section>
+  </main>
+
+  <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
+
+  <dialog id="howto" aria-labelledby="howto-title"></dialog>
+
+  <script>
+    // If the module script fails (offline, blocked), say so instead of showing a blank page.
+    window.addEventListener('error', function () {
+      var el = document.getElementById('load-error');
+      if (el && !window.__ldReady) el.hidden = false;
+    });
+  </script>
+  <script type="module" src="js/main.js" onerror="document.getElementById('load-error').hidden=false"></script>
+</body>
+</html>
