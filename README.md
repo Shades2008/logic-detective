@@ -15,6 +15,7 @@ No login, no install, no backend. It runs entirely in the browser.
 - **Every clue is true of the culprit**, and every card rules out at least one suspect. No tricks, no decoys.
 - "Next to" means the suspect numbered one lower or one higher in the lineup.
 - Opening a card does **not** cross anyone off. That's your job: tap a suspect to cross them off (it's only your notebook).
+- Open at least **2 clues** first; Accuse stays greyed out until you have.
 - When you're sure, press **Accuse**, tap a suspect, and confirm.
   A wrong accusation is a **strike**. Strikes add up across the whole run, and the third one ends it.
 - Scoring: 1000 per case, -75 per card opened, -200 per strike, +150 for solving in par cards or fewer,

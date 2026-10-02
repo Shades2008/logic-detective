@@ -3,7 +3,8 @@
 //   startRun()            begin a 4-case run, returns the first case view
 //   getCase()             the current case view
 //   openCard(index)       open a clue card (opening twice costs nothing extra)
-//   accuse(suspectIndex)  { correct, case } - a wrong guess is a strike
+//   accuse(suspectIndex)  { correct, case } - a wrong guess is a strike; needs
+//                         MIN_CARDS_TO_ACCUSE open cards first
 //   nextCase()            move on after a finished case
 //   getRunSummary()       totals and per-case breakdown
 //
@@ -15,7 +16,7 @@
 // All rules live here or in /lib; the UI only draws what it is handed.
 
 import { generateCase } from '../lib/generator.js';
-import { LEVELS } from '../lib/data.js';
+import { LEVELS, MIN_CARDS_TO_ACCUSE } from '../lib/data.js';
 import { SCORING, scoreBreakdown, scoreRun } from '../lib/scoring.js';
 import { publicView, revealClue, resolveAccusation } from '../lib/view.js';
 import { clueToText } from '../lib/text.js';
@@ -80,6 +81,11 @@ export function createGameClient({ random = globalThis.crypto, generate = genera
     });
   };
 
+  // One rule, used both to gate accuse() and to tell the UI what to show.
+  const accuseBlock = (cs) => (cs.ended || cs.opened.length >= MIN_CARDS_TO_ACCUSE
+    ? null
+    : `Open at least ${MIN_CARDS_TO_ACCUSE} clues before accusing`);
+
   const caseView = () => {
     const cs = run.current;
     const pub = publicView(cs.data);
@@ -96,6 +102,8 @@ export function createGameClient({ random = globalThis.crypto, generate = genera
       maxStrikes: SCORING.maxStrikes,
       runScore: scoreRun(run.finished.map(inputOf)).total,
       status: !cs.ended ? 'playing' : cs.solved ? 'solved' : 'failed',
+      canAccuse: !cs.ended && accuseBlock(cs) === null,
+      accuseBlockedMessage: accuseBlock(cs),
       runOver: runIsOver(),
       suspects: pub.suspects.map((s, index) => ({ index, position: index + 1, ...s })),
       cards: pub.cards.map((card) => (opened.has(card.index)
@@ -149,6 +157,8 @@ export function createGameClient({ random = globalThis.crypto, generate = genera
       if (!Number.isInteger(suspectIndex) || suspectIndex < 0 || suspectIndex >= cs.data.suspects.length) {
         throw new GameError('bad-index', `No such suspect: ${suspectIndex}`);
       }
+      const blocked = accuseBlock(cs);
+      if (blocked) throw new GameError('too-few-cards', blocked);
       if (cs.cleared.includes(suspectIndex)) {
         throw new GameError('already-cleared', 'That suspect has already been cleared.');
       }

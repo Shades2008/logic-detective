@@ -85,6 +85,7 @@ ul, ol { margin: 0; padding: 0; }
 .btn-ghost { background: transparent; border-color: var(--line); min-height: 44px; padding: 0 14px; font-weight: 600; font-size: .9rem; }
 .btn-danger { background: var(--bad); color: #1c0b09; }
 .btn[disabled], .btn[aria-disabled="true"] { opacity: .5; cursor: default; }
+.actionbar .blocked { color: var(--muted); font-weight: 600; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .btn-row > .btn { flex: 1 1 140px; }
 

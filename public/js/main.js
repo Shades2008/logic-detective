@@ -4,7 +4,7 @@
 
 import { createGameClient, GameError } from './gameClient.js';
 import { SCORING } from '../lib/scoring.js';
-import { LEVELS } from '../lib/data.js';
+import { LEVELS, MIN_CARDS_TO_ACCUSE } from '../lib/data.js';
 import { figureSvg, LOCATION_ICONS, ITEM_ICONS, TRAIT_ICONS, CARD_ICONS } from './art.js';
 import { loadProfile, saveProfile } from './storage.js';
 import { FEEDBACK_URL } from './config.js';
@@ -115,6 +115,7 @@ function buildHowTo() {
 
       h('h3', { text: 'Accusing' }),
       h('ul', {},
+        h('li', { text: `Open at least ${MIN_CARDS_TO_ACCUSE} clues first. Accuse stays greyed out until you have.` }),
         h('li', { text: 'When you are sure, press Accuse, tap a suspect, then confirm.' }),
         h('li', { text: `A wrong accusation is a strike (−${SCORING.perWrongAccusation}). That suspect is cleared and you carry on with the same case. Strikes add up across the whole run, and the ${SCORING.maxStrikes === 3 ? 'third' : 'last'} strike ends it.` })),
 
@@ -282,9 +283,16 @@ function actionBar(v) {
   const feedback = ui.feedback ? h('p', { class: `feedback ${ui.feedback.kind}`, text: ui.feedback.text }) : null;
 
   if (!ui.accuseMode) {
+    // The adapter owns the rule; the UI shows its message and greys the button.
+    const blocked = !v.canAccuse;
     return h('div', { class: 'actionbar' }, feedback,
+      blocked ? h('p', { class: 'blocked', id: 'accuse-hint', text: v.accuseBlockedMessage }) : null,
       h('div', { class: 'btn-row' },
-        h('button', { type: 'button', class: 'btn btn-primary', 'data-focus': 'accuse', onclick: beginAccuse, text: 'Accuse a suspect' })));
+        h('button', {
+          type: 'button', class: 'btn btn-primary', 'data-focus': 'accuse', text: 'Accuse a suspect',
+          'aria-disabled': blocked ? 'true' : null, 'aria-describedby': blocked ? 'accuse-hint' : null,
+          onclick: blocked ? () => announce(v.accuseBlockedMessage) : beginAccuse,
+        })));
   }
 
   const picked = ui.selected === null ? null : v.suspects[ui.selected];
@@ -375,7 +383,7 @@ function showResult() {
   for (let i = summary.cases.length - 1; i >= 0 && summary.cases[i].solved; i--) streak++;
 
   const overPar = r.cardsOpened - r.par;
-  const parLine = r.cardsOpened <= r.par
+  const parLine = b.parBonus > 0
     ? `${plural(r.cardsOpened, 'card')} opened against par ${r.par}: par bonus earned.`
     : `${plural(r.cardsOpened, 'card')} opened against par ${r.par}: ${plural(overPar, 'card')} over, so no par bonus.`;
 

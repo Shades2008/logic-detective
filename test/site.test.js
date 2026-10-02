@@ -57,6 +57,17 @@ test('the UI imports only the adapter and display helpers, never the generator, 
   assert.match(main, /r\.culprit/, 'expected the result screen to read the culprit from the finished result');
 });
 
+test('the UI takes the accuse rule from the adapter instead of re-implementing it', () => {
+  const main = read('public/js/main.js');
+  assert.match(main, /v\.canAccuse/);
+  assert.match(main, /v\.accuseBlockedMessage/);
+  assert.doesNotMatch(main, /Open at least \d/, 'the message text lives in the adapter');
+  assert.doesNotMatch(main, /cardsOpened\s*(<|>=|<=|>)\s*(MIN_CARDS|\d)/, 'no card-count rule checks in the UI');
+  assert.doesNotMatch(main, /cardsOpened\s*<=\s*\w+\.par/, 'the par bonus must come from the score breakdown');
+  const how = main.match(/Open at least \$\{MIN_CARDS_TO_ACCUSE\} clues first/);
+  assert.ok(how, 'How to Play explains the rule using the shared constant');
+});
+
 test('page metadata supports a bare shared link', () => {
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1/);
   assert.match(html, /<title>[^<]{5,}<\/title>/);

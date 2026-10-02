@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createGameClient, GameError, TOTAL_CASES } from '../public/js/gameClient.js';
 import { generateCase } from '../lib/generator.js';
-import { LEVELS } from '../lib/data.js';
+import { LEVELS, MIN_CARDS_TO_ACCUSE } from '../lib/data.js';
 import { SCORING, scoreRun } from '../lib/scoring.js';
 import { clueToText } from '../lib/text.js';
 
@@ -21,9 +21,15 @@ function recordingClient(tamper = (c) => c) {
   return { client, cases, current: () => cases[cases.length - 1] };
 }
 
+// Accusing needs MIN_CARDS_TO_ACCUSE open cards, so helpers open the lowest unopened ones first.
+function openUpTo(client, n = MIN_CARDS_TO_ACCUSE) {
+  let view = client.getCase();
+  for (let i = 0; view.cardsOpened < n; i++) if (!view.cards[i].opened) view = client.openCard(i);
+}
+
 const innocentFor = (view, culprit) => view.suspects.find((s) => s.index !== culprit && !view.innocents.includes(s.index)).index;
-const solveCase = (client, rec) => client.accuse(rec.current().culprit);
-const wrongGuess = (client, rec) => client.accuse(innocentFor(client.getCase(), rec.current().culprit));
+const solveCase = (client, rec) => { openUpTo(client); return client.accuse(rec.current().culprit); };
+const wrongGuess = (client, rec) => { openUpTo(client); return client.accuse(innocentFor(client.getCase(), rec.current().culprit)); };
 
 const expectCode = (fn, code) => assert.throws(fn, (e) => e instanceof GameError && e.code === code, `expected GameError ${code}`);
 
@@ -97,6 +103,7 @@ test('a wrong accusation is a strike: suspect cleared, same case continues, card
   const rec = recordingClient();
   rec.client.startRun();
   rec.client.openCard(4);
+  rec.client.openCard(0);
   const wrong = innocentFor(rec.client.getCase(), rec.current().culprit);
   const { correct, case: view } = rec.client.accuse(wrong);
   assert.equal(correct, false);
@@ -104,7 +111,7 @@ test('a wrong accusation is a strike: suspect cleared, same case continues, card
   assert.deepEqual(view.innocents, [wrong]);
   assert.equal(view.status, 'playing');
   assert.equal(view.cards[4].opened, true);
-  assert.equal(view.cardsOpened, 1);
+  assert.equal(view.cardsOpened, 2);
   expectCode(() => rec.client.accuse(wrong), 'already-cleared'); // no double strike
   assert.equal(rec.client.getCase().strikes, 1);
   const { correct: ok, case: done } = solveCase(rec.client, rec);
@@ -165,11 +172,11 @@ test('three strikes inside one case also end the run', () => {
 test('run score equals scoreRun of the case results', () => {
   const rec = recordingClient();
   rec.client.startRun();
-  // case 1: 2 cards, clean; case 2: 4 cards + 1 strike; case 3: 0 cards; case 4: 10 cards
+  // case 1: 2 cards, clean; case 2: 4 cards + 1 strike; case 3: 2 cards; case 4: 10 cards
   const plan = [
     { open: 2, wrong: 0 },
     { open: 4, wrong: 1 },
-    { open: 0, wrong: 0 },
+    { open: 2, wrong: 0 },
     { open: 10, wrong: 0 },
   ];
   plan.forEach((p, i) => {
@@ -238,6 +245,72 @@ test('accusing or opening after a case has ended is rejected', () => {
   for (let i = 0; i < 3; i++) wrongGuess(rec2.client, rec2);
   expectCode(() => rec2.client.accuse(rec2.current().culprit), 'case-over');
   assert.equal(rec2.client.getCase().strikes, 3);
+});
+
+// ---- the "open at least 2 clues" rule -------------------------------------
+
+test('accusing with fewer than 2 cards open is rejected, costs nothing, and says why', () => {
+  const rec = recordingClient();
+  rec.client.startRun();
+  const culprit = rec.current().culprit;
+  const innocent = innocentFor(rec.client.getCase(), culprit);
+  assert.equal(MIN_CARDS_TO_ACCUSE, 2);
+  const message = 'Open at least 2 clues before accusing';
+
+  for (const target of [culprit, innocent]) {
+    assert.throws(() => rec.client.accuse(target), (e) => e instanceof GameError && e.code === 'too-few-cards' && e.message === message);
+  }
+  let view = rec.client.getCase();
+  assert.equal(view.canAccuse, false);
+  assert.equal(view.accuseBlockedMessage, message);
+  assert.equal(view.strikes, 0, 'a rejected accusation is not a strike');
+  assert.deepEqual(view.innocents, []);
+  assert.equal(view.status, 'playing');
+
+  view = rec.client.openCard(0); // 1 card open: still blocked
+  assert.equal(view.canAccuse, false);
+  assert.equal(view.accuseBlockedMessage, message);
+  expectCode(() => rec.client.accuse(culprit), 'too-few-cards');
+
+  view = rec.client.openCard(0); // the same card again does not count as a second one
+  assert.equal(view.cardsOpened, 1);
+  assert.equal(view.canAccuse, false);
+  expectCode(() => rec.client.accuse(culprit), 'too-few-cards');
+
+  view = rec.client.openCard(1); // 2 distinct cards: allowed
+  assert.equal(view.canAccuse, true);
+  assert.equal(view.accuseBlockedMessage, null);
+  const { correct, case: done } = rec.client.accuse(culprit);
+  assert.equal(correct, true);
+  assert.equal(done.result.cardsOpened, 2);
+  assert.equal(done.canAccuse, false, 'nothing to accuse once the case has ended');
+});
+
+test('the rule applies to every case in a run, not just the first', () => {
+  const rec = recordingClient();
+  rec.client.startRun();
+  for (let n = 1; n <= 4; n++) {
+    assert.equal(rec.client.getCase().canAccuse, false, `case ${n} starts with accusing blocked`);
+    expectCode(() => rec.client.accuse(rec.current().culprit), 'too-few-cards');
+    rec.client.openCard(0);
+    expectCode(() => rec.client.accuse(rec.current().culprit), 'too-few-cards');
+    rec.client.openCard(1);
+    assert.equal(rec.client.getCase().canAccuse, true);
+    rec.client.accuse(rec.current().culprit);
+    if (n < 4) rec.client.nextCase();
+  }
+});
+
+test('a case-ending or bad-index error still takes priority over the card rule where it should', () => {
+  const rec = recordingClient();
+  rec.client.startRun();
+  expectCode(() => rec.client.accuse(99), 'bad-index');
+  solveCase(rec.client, rec);
+  expectCode(() => rec.client.accuse(0), 'case-over');
+});
+
+test('every level keeps the par bonus reachable under the rule', () => {
+  for (const level of LEVELS) assert.ok(level.minPar >= MIN_CARDS_TO_ACCUSE, `level ${level.level}`);
 });
 
 test('startRun starts afresh: strikes, score and cases reset', () => {
